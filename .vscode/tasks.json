@@ -1,0 +1,15 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Streamlit: Run current file",
+      "type": "shell",
+      "command": "& \"C:\\Users\\이지후\\AppData\\Local\\Python\\bin\\python.exe\" -m streamlit run \"${file}\"",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "isBackground": true
+    }
+  ]
+}
