@@ -6,5 +6,7 @@
     "code-runner.saveFileBeforeRun": true,
     "terminal.integrated.fontSize": 14,
     "editor.parameterHints.enabled": false,
-    "python-envs.defaultEnvManager": "ms-python.python:system"
+    "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+    "python-envs.defaultEnvManager": "ms-python.python:system",
+    "python.analysis.autoImportCompletions": false
 }
