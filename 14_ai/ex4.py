@@ -4,6 +4,7 @@ import os
 import json
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import PreTrainedTokenizerFast
 
 # ===========================================================
 #  1. 패키지 목록
@@ -69,10 +70,14 @@ print(f"학습용 {len(train_sentences)}개 / 평가용 {len(test_sentences)}개
 #  - dtype=torch.float32 : 학습할 때는 숫자를 정밀하게(32비트) 다뤄야 함
 # ===========================================================
 
-# model_name = "Qwen/Qwen2.5-0.5B-Instruct"
+model_name = "Qwen/Qwen2.5-0.5B-Instruct"
 
 # tokenizer = AutoTokenizer.from_pretrained(model_name)
-# model = AutoModelForCausalLM.from_pretrained(model_name, dtype=torch.float32)
+tokenizer = PreTrainedTokenizerFast.from_pretrained(model_name,
+  bos_token='</s>', eos_token='</s>', unk_token='<unk>',
+  pad_token='<pad>', mask_token='<mask>')
+
+model = AutoModelForCausalLM.from_pretrained(model_name, dtype=torch.float32)
 
 
 # ===========================================================
@@ -86,25 +91,25 @@ print(f"학습용 {len(train_sentences)}개 / 평가용 {len(test_sentences)}개
 #  - 채워 넣은 칸(padding)은 정답이 아니므로 오차 계산에서 제외
 # ===========================================================
 
-# def make_dataset(sentences):
-#     texts = [sentence + tokenizer.eos_token for sentence in sentences]      # 문장 끝에 종료 토큰 붙이기
+def make_dataset(sentences):
+    texts = [sentence + tokenizer.eos_token for sentence in sentences]      # 문장 끝에 종료 토큰 붙이기
 
-#     # return_tensors="pt" : 결과를 PyTorch 텐서로 받음
-#     inputs = tokenizer(texts, padding=True, return_tensors="pt")            # 문장 -> 숫자
+    # return_tensors="pt" : 결과를 PyTorch 텐서로 받음
+    inputs = tokenizer(texts, padding=True, return_tensors="pt")            # 문장 -> 숫자
 
-#     # inputs["input_ids"] : 모델에 넣을 토큰값
-#     # inputs["attention_mask"] : 실제 토큰과 패딩의 위치 구분 (패딩은 0으로 표시)
-#     labels = inputs["input_ids"].clone()                                    # 텐서 복사 (원본 유지)
-#     labels[inputs["attention_mask"] == 0] = -100                            # 패딩으로 채워 넣은 칸은 오차 계산 제외
-#     return inputs, labels
+    # inputs["input_ids"] : 모델에 넣을 토큰값
+    # inputs["attention_mask"] : 실제 토큰과 패딩의 위치 구분 (패딩은 0으로 표시)
+    labels = inputs["input_ids"].clone()                                    # 텐서 복사 (원본 유지)
+    labels[inputs["attention_mask"] == 0] = -100                            # 패딩으로 채워 넣은 칸은 오차 계산 제외
+    return inputs, labels
 
 
 # # 학습용, 평가용 데이터를 각각 숫자로 변환
-# train_inputs, train_labels = make_dataset(train_sentences)
-# test_inputs, test_labels = make_dataset(test_sentences)
+train_inputs, train_labels = make_dataset(train_sentences)
+test_inputs, test_labels = make_dataset(test_sentences)
 
 # # 한 번에 처리할 문장 수 (한꺼번에 처리하면 메모리를 많이 쓰므로 나눠서 처리)
-# batch_size = 10
+batch_size = 10
 
 
 # ===========================================================
@@ -118,45 +123,49 @@ print(f"학습용 {len(train_sentences)}개 / 평가용 {len(test_sentences)}개
 #  - max_new_tokens=40 : 최대 40토큰까지만 만들기
 # ===========================================================
 
-# def accuracy(inputs, labels):
-#     model.eval()                                                            # 평가 모드
-#     correct, total = 0, 0
-#     with torch.no_grad():                                                   # 학습하지 않고 예측만 하기
-#         for i in range(0, len(labels), batch_size):
-#             logits = model(
-#                 input_ids=inputs["input_ids"][i:i + batch_size],
-#                 attention_mask=inputs["attention_mask"][i:i + batch_size],
-#             ).logits                                                        # 위치마다 다음 토큰의 분류 점수
-#             predicted = logits[:, :-1].argmax(dim=-1)                       # 각 위치에서 예측한 다음 토큰
-#             answer = labels[i:i + batch_size][:, 1:]                        # 실제 다음 토큰 (한 칸씩 밀어서 비교)
-#             mask = answer != -100                                           # 패딩 칸은 제외
-#             correct += (predicted[mask] == answer[mask]).sum().item()
-#             total += mask.sum().item()
-#     return correct / total
+def accuracy(inputs, labels):
+    model.eval()                                                            # 평가 모드
+    correct, total = 0, 0
+    with torch.no_grad():                                                   # 학습하지 않고 예측만 하기
+        for i in range(0, len(labels), batch_size):
+            logits = model(
+                input_ids=inputs["input_ids"][i:i + batch_size],
+                attention_mask=inputs["attention_mask"][i:i + batch_size],
+            ).logits                                                        # 위치마다 다음 토큰의 분류 점수
+            predicted = logits[:, :-1].argmax(dim=-1)                       # 각 위치에서 예측한 다음 토큰
+            answer = labels[i:i + batch_size][:, 1:]                        # 실제 다음 토큰 (한 칸씩 밀어서 비교)
+
+            # 입력토큰 : 디미고는 경기도 안산에 있어요. </s>
+            # 예측값 : 경기도? 안산에? 있어요. </s>     X
+            
+            mask = answer != -100                                           # 패딩 칸은 제외
+            correct += (predicted[mask] == answer[mask]).sum().item()
+            total += mask.sum().item()
+    return correct / total
 
 
-# def generate(prompt):
-#     model.eval()                                                        # 평가 모드
-#     prompt_inputs = tokenizer(prompt, return_tensors="pt")              # 입력 문장을 숫자 텐서로 변환
-#     with torch.no_grad():                                               # 학습하지 않기
-#         # 디미고는 경기도 -> 디미고는 경기도 안산 -> 디미고는 경기도 안산에 -> 디미고는 경기도 안산에 있습니다.
-#         output = model.generate(                                        # 입력 뒤에 이어지는 토큰 생성
-#             **prompt_inputs,
-#             max_new_tokens=40,                                          # 새로 생성할 토큰 수 제한
-#             do_sample=False,
-#             pad_token_id=tokenizer.pad_token_id,
-#         )
-#     return tokenizer.decode(output[0], skip_special_tokens=True)
+def generate(prompt):
+    model.eval()                                                        # 평가 모드
+    prompt_inputs = tokenizer(prompt, return_tensors="pt")              # 입력 문장을 숫자 텐서로 변환
+    with torch.no_grad():                                               # 학습하지 않기
+        # 디미고는 경기도 -> 디미고는 경기도 안산 -> 디미고는 경기도 안산에 -> 디미고는 경기도 안산에 있습니다.
+        output = model.generate(                                        # 입력 뒤에 이어지는 토큰 생성
+            **prompt_inputs,
+            max_new_tokens=40,                                          # 새로 생성할 토큰 수 제한
+            do_sample=False,
+            pad_token_id=tokenizer.pad_token_id,
+        )
+    return tokenizer.decode(output[0], skip_special_tokens=True)
 
 
-# # 평가용 문장의 앞부분(두 단어)만 주고 뒷부분을 만들게 하기 (학습에 쓰지 않은 문장)
-# prompts = [" ".join(sentence.split()[:2]) for sentence in test_sentences]
+# 평가용 문장의 앞부분(두 단어)만 주고 뒷부분을 만들게 하기 (학습에 쓰지 않은 문장)
+prompts = [" ".join(sentence.split()[:2]) for sentence in test_sentences]
 
 
-# def show_generated():
-#     for prompt, sentence in zip(prompts, test_sentences):
-#         print(f"{prompt} -> {generate(prompt)}")
-#         print(f"    (원래 문장) {sentence}")
+def show_generated():
+    for prompt, sentence in zip(prompts, test_sentences):
+        print(f"{prompt} -> {generate(prompt)}")
+        print(f"    (원래 문장) {sentence}")
 
 
 # print()
