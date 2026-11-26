@@ -97,7 +97,7 @@ data = "   kim   lee   park   choi   "
 names = data.split()
 print(names)                    # ✅ 리스트 출력
 print(" ".join(names))          # ✅ "kim lee park choi" 출력
-=======
+
 # 문자열 내장 함수
 
 a = "Hello, Python"
